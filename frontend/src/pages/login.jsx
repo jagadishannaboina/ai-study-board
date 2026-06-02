@@ -2,7 +2,11 @@ import { useState } from "react";
 
 import axios from "axios";
 
+import { useNavigate } from "react-router-dom";
+
 function Login() {
+
+    const navigate = useNavigate();
 
     const [formData, setFormData] = useState({
 
@@ -21,7 +25,6 @@ function Login() {
     };
 
     const handleSubmit = async (e) => {
-        console.log("Clicked");
 
         e.preventDefault();
 
@@ -36,6 +39,16 @@ function Login() {
             );
 
             console.log(response.data);
+
+            localStorage.setItem(
+
+                "token",
+
+                response.data.token
+
+            );
+
+            navigate("/dashboard");
 
         } catch (error) {
 
