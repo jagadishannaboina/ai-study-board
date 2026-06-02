@@ -12,7 +12,6 @@ function Board() {
     const undoStack = useRef([]);
     const redoStack = useRef([]);
     const isLoadedRef = useRef(false);
-    
 
     const remoteCursorsRef = useRef({}); 
     const myCursorRef = useRef(null); 
@@ -23,11 +22,11 @@ function Board() {
     const [aiSummary, setAiSummary] = useState("");
     const [loadingSummary, setLoadingSummary] = useState(false); 
 
+    const [activeUsers, setActiveUsers] = useState([]);
 
     useEffect(() => {
         if (!containerRef.current) return;
 
-   
         containerRef.current.innerHTML = "";
         
         const canvasElement = document.createElement("canvas");
@@ -43,11 +42,10 @@ function Board() {
         });
         canvasRef.current = canvas;
 
-
         const pencil = new fabric.PencilBrush(canvas);
+        pencil.color = brushColor;
+        pencil.width = brushSize;
         canvas.freeDrawingBrush = pencil;
-        canvas.freeDrawingBrush.color = brushColor;
-        canvas.freeDrawingBrush.width = brushSize;
 
         const myCursor = document.createElement("div");
         myCursor.style.width = "14px";
@@ -63,20 +61,31 @@ function Board() {
         myCursorRef.current = myCursor;
 
         socketRef.current = io("http://localhost:5000");
-        socketRef.current.emit("join-board", id);
 
-   
-        socketRef.current.on("receive-canvas-update", (data) => {
-            isLoadedRef.current = false;
-            canvas.loadFromJSON(data.canvasData, () => {
-                canvas.renderAll();
-                isLoadedRef.current = true;
-            });
+        socketRef.current.emit("join-board", {
+            boardId: id,
+            username: localStorage.getItem("username") || "Guest"
         });
 
-       
+        socketRef.current.on("active-users", (users) => {
+            setActiveUsers(users || []);
+        });
+
+        socketRef.current.on("receive-canvas-update", (data) => {
+            if (!canvasRef.current) return;
+
+            isLoadedRef.current = false;
+            canvasRef.current.loadFromJSON(
+                data.canvasData,
+                () => {
+                    canvasRef.current.backgroundColor = "#f8f9fa";
+                    canvasRef.current.renderAll();
+                    isLoadedRef.current = true;
+                }
+            );
+        });
+
         socketRef.current.on("receive-cursor", (data) => {
-           
             const targetId = data.socketId || data.userId;
             let cursorDiv = remoteCursorsRef.current[targetId];
 
@@ -84,7 +93,6 @@ function Board() {
                 cursorDiv = document.createElement("div");
                 cursorDiv.style.width = "14px";
                 cursorDiv.style.height = "14px";
-             
                 cursorDiv.style.background = "#3b82f6"; 
                 cursorDiv.style.borderRadius = "50%";
                 cursorDiv.style.position = "absolute";
@@ -100,7 +108,6 @@ function Board() {
             cursorDiv.style.top = data.y + "px";
         });
 
-     
         socketRef.current.on("user-left", (userIdOrSocketId) => {
             const cursorDiv = remoteCursorsRef.current[userIdOrSocketId];
             if (cursorDiv) {
@@ -109,17 +116,14 @@ function Board() {
             }
         });
 
-
         let lastEmit = Date.now();
         const handleMouseMove = (e) => {
-         
             if (myCursorRef.current) {
                 myCursorRef.current.style.display = "block";
                 myCursorRef.current.style.left = e.clientX + "px";
                 myCursorRef.current.style.top = e.clientY + "px";
             }
 
-       
             if (socketRef.current && Date.now() - lastEmit > 30) {
                 socketRef.current.emit("cursor-move", {
                     boardId: id,
@@ -144,21 +148,40 @@ function Board() {
             redoStack.current = [];
         };
 
+        let syncTimeout;
+
         const syncCanvas = () => {
             if (!socketRef.current || !isLoadedRef.current) return;
-            const canvasData = canvas.toJSON();
-            socketRef.current.emit("canvas-update", {
-                boardId: id,
-                canvasData
-            });
+            
+            clearTimeout(syncTimeout);
+            syncTimeout = setTimeout(() => {
+                const canvasData = canvas.toJSON();
+                socketRef.current.emit("canvas-update", {
+                    boardId: id,
+                    canvasData
+                });
+            }, 80);
         };
 
+        const handleCanvasChange = () => {
+            if (!isLoadedRef.current) return;
+            saveHistory();
+            syncCanvas();
+        };
 
-        canvas.on("object:added", () => { saveHistory(); syncCanvas(); });
-        canvas.on("object:modified", () => { saveHistory(); syncCanvas(); });
-        canvas.on("object:removed", () => { saveHistory(); syncCanvas(); });
-        canvas.on("path:created", syncCanvas);
+        // FIXED: Last absolute production bug blocks cleanly injected here 🛠️
+        canvas.on("object:modified", handleCanvasChange);
+        canvas.on("object:removed", handleCanvasChange);
 
+        canvas.on("object:added", () => {
+            if (!isLoadedRef.current) return;
+            saveHistory();
+        });
+
+        canvas.on("path:created", () => {
+            saveHistory();
+            syncCanvas();
+        });
 
         const getBoard = async () => {
             try {
@@ -169,16 +192,20 @@ function Board() {
                 );
 
                 if (response.data.elements?.length > 0) {
-                    await canvas.loadFromJSON({
-                        version: "7.4.0",
-                        objects: response.data.elements
-                    });
+                    canvas.loadFromJSON(
+                        { version: "7.4.0", objects: response.data.elements },
+                        () => {
+                            canvas.backgroundColor = "#f8f9fa";
+                            canvas.renderAll();
+                            isLoadedRef.current = true;
+                            undoStack.current.push(JSON.stringify(canvas.toObject(['selectable', 'evented'])));
+                        }
+                    );
+                } else {
+                    canvas.backgroundColor = "#f8f9fa";
+                    canvas.renderAll();
+                    isLoadedRef.current = true;
                 }
-                canvas.backgroundColor = "#f8f9fa";
-                canvas.renderAll();
-                
-                isLoadedRef.current = true;
-                undoStack.current.push(JSON.stringify(canvas.toObject(['selectable', 'evented'])));
             } catch (error) {
                 console.error("Error fetching board:", error);
                 isLoadedRef.current = true;
@@ -198,7 +225,6 @@ function Board() {
         };
         window.addEventListener("resize", handleResize);
 
-   
         return () => {
             window.removeEventListener("resize", handleResize);
             window.removeEventListener("mousemove", handleMouseMove);
@@ -213,7 +239,6 @@ function Board() {
         };
     }, [id]);
 
-   
     useEffect(() => {
         const canvas = canvasRef.current;
         if (canvas && canvas.freeDrawingBrush) {
@@ -230,7 +255,7 @@ function Board() {
         canvas.isDrawingMode = true;
         canvas.selection = false;
         canvas.discardActiveObject();
-        canvas.forEachObject((obj) => {
+        canvas.getObjects().forEach((obj) => {
             obj.selectable = false;
             obj.evented = false;
         });
@@ -243,7 +268,7 @@ function Board() {
         setActiveMode("select");
         canvas.isDrawingMode = false;
         canvas.selection = true;
-        canvas.forEachObject((obj) => {
+        canvas.getObjects().forEach((obj) => {
             obj.selectable = true;
             obj.evented = true;
         });
@@ -256,9 +281,8 @@ function Board() {
         enableSelect();
 
         let shape;
-        const center = canvas.getSceneCenter ? canvas.getSceneCenter() : (canvas.getCenter ? canvas.getCenter() : { x: window.innerWidth / 2, y: window.innerHeight / 2 });
-        const leftX = center.x !== undefined ? center.x : center.left;
-        const topY = center.y !== undefined ? center.y : center.top;
+        const leftX = canvas.getWidth() / 2;
+        const topY = canvas.getHeight() / 2;
 
         if (type === "rect") {
             shape = new fabric.Rect({
@@ -284,21 +308,120 @@ function Board() {
                 fill: "#1f2937",
                 fontSize: 22,
                 fontFamily: "Inter, sans-serif",
-                borderColor: "transparent",
-                cornerColor: "transparent",
-                cornerStrokeColor: "transparent",
-                hasControls: false,
-                hasBorders: false,
-                transparentCorners: true,
-                selectionBackgroundColor: "transparent"
+                hasControls: true,
+                hasBorders: true
             });
         }
 
         if (shape) {
             canvas.add(shape);
             canvas.setActiveObject(shape);
+            
             canvas.renderAll();
+            saveHistory();
+            
+            if (socketRef.current && isLoadedRef.current) {
+                const canvasData = canvas.toJSON();
+                socketRef.current.emit("canvas-update", {
+                    boardId: id,
+                    canvasData
+                });
+            }
         }
+    };
+
+    const addStickyNote = () => {
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+        enableSelect();
+
+        const centerX = canvas.getWidth() / 2;
+        const centerY = canvas.getHeight() / 2;
+
+        const note = new fabric.Rect({
+            fill: "#fef08a",
+            width: 220,
+            height: 160,
+            rx: 12,
+            ry: 12,
+            shadow: new fabric.Shadow({
+                color: "rgba(0,0,0,0.15)",
+                blur: 12,
+                offsetX: 0,
+                offsetY: 4
+            })
+        });
+
+        const text = new fabric.IText("Write note...", {
+            fontSize: 20,
+            fill: "#111827",
+            width: 180,
+            fontFamily: "Inter, sans-serif"
+        });
+
+        note.set({ left: centerX - 110, top: centerY - 80 });
+        text.set({ left: centerX - 80, top: centerY - 30 });
+
+        canvas.add(note);
+        canvas.add(text);
+        canvas.setActiveObject(text);
+        
+        canvas.renderAll();
+        saveHistory();
+
+        if (socketRef.current && isLoadedRef.current) {
+            const canvasData = canvas.toJSON();
+            socketRef.current.emit("canvas-update", {
+                boardId: id,
+                canvasData
+            });
+        }
+    };
+
+    const uploadImage = (e) => {
+        const file = e.target.files[0];
+        if (!file || !canvasRef.current) return;
+
+        enableSelect(); 
+
+        const reader = new FileReader();
+        reader.onload = (f) => {
+            fabric.Image.fromURL(f.target.result)
+                .then((img) => {
+                    const canvas = canvasRef.current;
+                    
+                    let centerX = canvas.getWidth() / 2;
+                    let centerY = canvas.getHeight() / 2;
+                    
+                    if (canvas && typeof canvas.getVpCenter === 'function') {
+                        const vpCenter = canvas.getVpCenter();
+                        centerX = vpCenter.x;
+                        centerY = vpCenter.y;
+                    }
+
+                    img.set({
+                        left: centerX - 100,
+                        top: centerY - 100,
+                        scaleX: 0.4,
+                        scaleY: 0.4
+                    });
+                    canvas.add(img);
+                    canvas.setActiveObject(img);
+                    
+                    canvas.renderAll();
+                    saveHistory();
+
+                    if (socketRef.current && isLoadedRef.current) {
+                        const canvasData = canvas.toJSON();
+                        socketRef.current.emit("canvas-update", {
+                            boardId: id,
+                            canvasData
+                        });
+                    }
+                })
+                .catch((err) => console.error("Error loading image into Fabric:", err));
+        };
+        reader.readAsDataURL(file);
     };
 
     const deleteSelected = () => {
@@ -308,7 +431,17 @@ function Board() {
         if (activeObjects.length > 0) {
             activeObjects.forEach((obj) => canvas.remove(obj));
             canvas.discardActiveObject();
+            
             canvas.renderAll();
+            saveHistory();
+            
+            if (socketRef.current && isLoadedRef.current) {
+                const canvasData = canvas.toJSON();
+                socketRef.current.emit("canvas-update", {
+                    boardId: id,
+                    canvasData
+                });
+            }
         }
     };
 
@@ -317,8 +450,21 @@ function Board() {
         if (!canvas) return;
         if (window.confirm("Do you want to clear the entire board?")) {
             canvas.clear();
+            
+            undoStack.current = [];
+            redoStack.current = [];
+            
             canvas.backgroundColor = "#f8f9fa";
             canvas.renderAll();
+            saveHistory();
+
+            if (socketRef.current && isLoadedRef.current) {
+                const canvasData = canvas.toJSON();
+                socketRef.current.emit("canvas-update", {
+                    boardId: id,
+                    canvasData
+                });
+            }
         }
     };
 
@@ -331,14 +477,15 @@ function Board() {
         const previousState = undoStack.current[undoStack.current.length - 1];
 
         isLoadedRef.current = false;
-        await canvas.loadFromJSON(JSON.parse(previousState));
-        canvas.backgroundColor = "#f8f9fa";
-        canvas.forEachObject((obj) => {
-            obj.selectable = !canvas.isDrawingMode;
-            obj.evented = !canvas.isDrawingMode;
+        canvas.loadFromJSON(JSON.parse(previousState), () => {
+            canvas.backgroundColor = "#f8f9fa";
+            canvas.getObjects().forEach((obj) => {
+                obj.selectable = !canvas.isDrawingMode;
+                obj.evented = !canvas.isDrawingMode;
+            });
+            canvas.renderAll();
+            isLoadedRef.current = true;
         });
-        canvas.renderAll();
-        isLoadedRef.current = true;
     };
 
     const redo = async () => {
@@ -349,14 +496,15 @@ function Board() {
         undoStack.current.push(nextState);
 
         isLoadedRef.current = false;
-        await canvas.loadFromJSON(JSON.parse(nextState));
-        canvas.backgroundColor = "#f8f9fa";
-        canvas.forEachObject((obj) => {
-            obj.selectable = !canvas.isDrawingMode;
-            obj.evented = !canvas.isDrawingMode;
+        canvas.loadFromJSON(JSON.parse(nextState), () => {
+            canvas.backgroundColor = "#f8f9fa";
+            canvas.getObjects().forEach((obj) => {
+                obj.selectable = !canvas.isDrawingMode;
+                obj.evented = !canvas.isDrawingMode;
+            });
+            canvas.renderAll();
+            isLoadedRef.current = true;
         });
-        canvas.renderAll();
-        isLoadedRef.current = true;
     };
 
     const downloadBoard = () => {
@@ -431,7 +579,6 @@ function Board() {
     };
 
     const styles = {
-       
         container: { position: "relative", width: "100vw", height: "100vh", overflow: "hidden", background: "#f8f9fa", fontFamily: "'Inter', sans-serif" },
         leftToolbar: { position: "absolute", top: "50%", left: "20px", transform: "translateY(-50%)", background: "#ffffff", padding: "12px", borderRadius: "16px", display: "flex", flexDirection: "column", gap: "12px", boxShadow: "0 10px 25px rgba(0,0,0,0.08)", border: "1px solid #e5e7eb", zIndex: 10 },
         toolBtn: (mode) => ({ background: activeMode === mode ? "#2563eb" : "transparent", border: "none", color: activeMode === mode ? "#fff" : "#4b5563", width: "45px", height: "45px", borderRadius: "10px", cursor: "pointer", fontSize: "18px", display: "flex", justifyContent: "center", alignItems: "center", transition: "all 0.2s ease" }),
@@ -440,7 +587,9 @@ function Board() {
         actionBtn: { background: "transparent", border: "none", color: "#374151", padding: "8px 14px", borderRadius: "8px", cursor: "pointer", fontSize: "14px", fontWeight: "500", display: "flex", alignItems: "center", gap: "5px", transition: "background 0.2s" },
         saveBtn: { background: "#10b981", color: "#fff", border: "none", padding: "10px 20px", borderRadius: "12px", cursor: "pointer", fontSize: "14px", fontWeight: "600", boxShadow: "0 4px 12px rgba(16, 185, 129, 0.2)", pointerEvents: "auto", transition: "all 0.2s" },
         colorInput: { width: "32px", height: "32px", border: "none", borderRadius: "50%", cursor: "pointer", overflow: "hidden", padding: 0, background: "none" },
-        aiBox: { background: "white", padding: "20px", borderRadius: "12px", color: "black", position: "absolute", bottom: "30px", right: "30px", width: "340px", boxShadow: "0 10px 25px rgba(0,0,0,0.1)", zIndex: 20, border: "1px solid #e5e7eb" }
+        aiBox: { background: "white", padding: "20px", borderRadius: "12px", color: "black", position: "absolute", bottom: "30px", right: "30px", width: "340px", boxShadow: "0 10px 25px rgba(0,0,0,0.1)", zIndex: 20, border: "1px solid #e5e7eb" },
+        usersPanel: { position: "absolute", top: "90px", right: "30px", display: "flex", flexDirection: "column", gap: "10px", zIndex: 999 },
+        userBadge: { background: "white", padding: "10px 16px", borderRadius: "12px", boxShadow: "0 4px 12px rgba(0,0,0,0.12)", fontWeight: "bold", color: "#111827" }
     };
 
     return (
@@ -464,6 +613,17 @@ function Board() {
                 </div>
             </div>
 
+            <div style={styles.usersPanel}>
+                {activeUsers && activeUsers.map((user, index) => {
+                    const uniqueKey = user.socketId || `user-badge-id-${index}`;
+                    return (
+                        <div key={uniqueKey} style={styles.userBadge}>
+                            🟢 {user.username || "Guest"}
+                        </div>
+                    );
+                })}
+            </div>
+
             <div style={styles.leftToolbar}>
                 <button title="Select Tool" onClick={enableSelect} style={styles.toolBtn("select")}>🎯</button>
                 <button title="Pencil Tool" onClick={enableDrawing} style={styles.toolBtn("pencil")}>✏️</button>
@@ -471,10 +631,16 @@ function Board() {
                 <button title="Add Rectangle" onClick={() => addShape("rect")} style={styles.toolBtn("rect")}>🟥</button>
                 <button title="Add Circle" onClick={() => addShape("circle")} style={styles.toolBtn("circle")}>🔵</button>
                 <button title="Add Text" onClick={() => addShape("text")} style={styles.toolBtn("text")}>🔤</button>
+                <button title="Sticky Note" onClick={addStickyNote} style={styles.toolBtn("sticky")}>📝</button>
+                
+                <label style={{ ...styles.toolBtn("image"), display: "flex" }} title="Upload Image">
+                    🖼️
+                    <input type="file" accept="image/*" onChange={uploadImage} hidden />
+                </label>
+
                 <div style={{ height: "1px", background: "#e5e7eb", margin: "4px 0" }}></div>
                 <input type="color" value={brushColor} onChange={(e) => setBrushColor(e.target.value)} style={styles.colorInput}/>
             </div>
-
 
             <div ref={containerRef} style={{ width: "100%", height: "100%", cursor: "none" }}></div>
 
