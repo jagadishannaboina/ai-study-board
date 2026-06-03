@@ -8,7 +8,8 @@ function Login() {
         email: "",
         password: ""
     });
-    const [errorMsg, setErrorMsg] = useState(""); // 🎯 ఎర్రర్స్ స్క్రీన్ పై చూపించడానికి
+    const [errorMsg, setErrorMsg] = useState("");
+    const [isLoading, setIsLoading] = useState(false);
 
     const handleChange = (e) => {
         setFormData({
@@ -19,7 +20,8 @@ function Login() {
 
     const handleSubmit = async (e) => {
         e.preventDefault();
-        setErrorMsg(""); // Reset errors on new attempt
+        setErrorMsg(""); 
+        setIsLoading(true);
 
         try {
             const response = await axios.post(
@@ -29,11 +31,9 @@ function Login() {
 
             console.log("Login Response Data:", response.data);
 
-            // 🎯 ✅ టోకెన్ సేవ్ చేస్తున్నాం
+            // ✅ టోకెన్ & యూజర్‌నేమ్ సేవ్ చేస్తున్నాం
             localStorage.setItem("token", response.data.token);
 
-            // 🎯 ✅ FIX: సాకెట్ రూమ్స్ లో "Guest" అని పడకుండా ఉండటానికి యూజర్‌నేమ్ కూడా సేవ్ చేస్తున్నాం
-            // నీ బ్యాకెండ్ రెస్పాన్స్ స్ట్రక్చర్ బట్టి response.data.user.name లేదా response.data.name వాడు బ్రో
             const loggedInUser = response.data.user?.name || response.data.name || "Collaborator";
             localStorage.setItem("username", loggedInUser);
 
@@ -42,6 +42,8 @@ function Login() {
         } catch (error) {
             console.error("Login Error:", error);
             setErrorMsg(error.response?.data?.message || "Invalid Email or Password! ❌");
+        } finally {
+            setIsLoading(false);
         }
     };
 
@@ -50,8 +52,8 @@ function Login() {
         wrapper: { display: "flex", justifyContent: "center", alignItems: "center", height: "100vh", background: "#f8f9fa", fontFamily: "'Inter', sans-serif" },
         card: { background: "#ffffff", padding: "40px", borderRadius: "16px", boxShadow: "0 10px 30px rgba(0,0,0,0.05)", width: "100%", maxWidth: "400px", textAlign: "center", border: "1px solid #e5e7eb" },
         title: { margin: "0 0 24px 0", color: "#1f2937", fontSize: "28px", fontWeight: "700" },
-        input: { width: "100%", padding: "12px 16px", margin: "8px 0", borderRadius: "10px", border: "1px solid #d1d5db", fontSize: "15px", outline: "none", boxSizing: "border-box", transition: "border 0.2s" },
-        button: { width: "100%", padding: "14px", background: "#2563eb", color: "#ffffff", border: "none", borderRadius: "10px", fontSize: "16px", fontWeight: "600", cursor: "pointer", marginTop: "16px", boxShadow: "0 4px 12px rgba(37, 99, 235, 0.2)", transition: "background 0.2s" },
+        input: { width: "100%", padding: "12px 16px", margin: "8px 0", borderRadius: "10px", border: "1px solid #d1d5db", fontSize: "15px", outline: "none", boxSizing: "border-box" },
+        button: { width: "100%", padding: "14px", background: isLoading ? "#93c5fd" : "#2563eb", color: "#ffffff", border: "none", borderRadius: "10px", fontSize: "16px", fontWeight: "600", cursor: isLoading ? "not-allowed" : "pointer", marginTop: "16px", boxShadow: "0 4px 12px rgba(37, 99, 235, 0.2)", transition: "background 0.2s" },
         error: { color: "#ef4444", fontSize: "14px", margin: "10px 0", fontWeight: "500" }
     };
 
@@ -63,6 +65,7 @@ function Login() {
                 {errorMsg && <div style={styles.error}>{errorMsg}</div>}
 
                 <form onSubmit={handleSubmit}>
+                    {/* 🎯 ✅ సింటాక్స్ ఫిక్స్ చేసిన ఈమెయిల్ ఇన్‌పుట్ */}
                     <input
                         type="email"
                         name="email"
@@ -73,6 +76,7 @@ function Login() {
                         required
                     />
 
+                    {/* 🎯 ✅ సింటాక్స్ ఫిక్స్ చేసిన పాస్‌వర్డ్ ఇన్‌పుట్ */}
                     <input
                         type="password"
                         name="password"
@@ -83,10 +87,23 @@ function Login() {
                         required
                     />
 
-                    <button type="submit" style={styles.button}>
-                        Login
+                    <button type="submit" style={styles.button} disabled={isLoading}>
+                        {isLoading ? "Logging in..." : "Login"}
                     </button>
                 </form>
+
+                {/* 🎯 ✅ </form> కింద కరెక్ట్ ప్లేస్‌లో Create Account లింక్ */}
+                <p
+                    onClick={() => navigate("/register")}
+                    style={{
+                        marginTop: "15px",
+                        cursor: "pointer",
+                        color: "#2563eb",
+                        fontWeight: "600"
+                    }}
+                >
+                    Create Account
+                </p>
             </div>
         </div>
     );
