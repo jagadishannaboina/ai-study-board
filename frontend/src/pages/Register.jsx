@@ -1,6 +1,6 @@
 import { useState } from "react";
 import axios from "axios";
-import { useNavigate } from "react-router-dom"; // 🎯 Redirect కోసం
+import { useNavigate } from "react-router-dom"; 
 
 function Register() {
     const navigate = useNavigate();
@@ -9,7 +9,7 @@ function Register() {
         email: "",
         password: ""
     });
-    const [errorMsg, setErrorMsg] = useState(""); // ఎర్రర్స్ UI లో చూపించడానికి
+    const [errorMsg, setErrorMsg] = useState(""); 
 
     const handleChange = (e) => {
         setFormData({
@@ -24,22 +24,23 @@ function Register() {
 
         try {
             const response = await axios.post(
-                "http://localhost:5000/api/auth/register",
+                `${import.meta.env.VITE_API_URL}/api/auth/register`,
+                
                 formData
             );
 
             console.log("Registration Success:", response.data);
 
-            // 🎯 ✅ FIX: బ్యాకెండ్ నుండి వచ్చే టోకెన్ & యూజర్‌నేమ్ localStorage లో సేవ్ చేస్తున్నాం
+          
             if (response.data && response.data.token) {
                 localStorage.setItem("token", response.data.token);
-                // నీ బ్యాకెండ్ రెస్పాన్స్ బట్టి response.data.user.name లేదా response.data.name వాడు బ్రో
+             
                 const loggedInUser = response.data.user?.name || response.data.name || "User";
                 localStorage.setItem("username", loggedInUser);
                 
                 alert("Registration Successful! 🎉");
                 
-                // 🧭 టోకెన్ సేవ్ అయ్యాక డ్యాష్‌బోర్డ్ లేదా హోమ్ పేజీకి రీడైరెక్ట్ చేయి
+          
                 navigate("/dashboard"); 
             }
 
@@ -49,7 +50,7 @@ function Register() {
         }
     };
 
-    // 🎨 నీకు నచ్చిన క్లీన్ వైట్/లైట్ థీమ్ స్టైల్స్
+  
     const styles = {
         wrapper: { display: "flex", justifyContent: "center", alignItems: "center", height: "100vh", background: "#f8f9fa", fontFamily: "'Inter', sans-serif" },
         card: { background: "#ffffff", padding: "40px", borderRadius: "16px", boxShadow: "0 10px 30px rgba(0,0,0,0.05)", width: "100%", maxWwidth: "400px", textAlign: "center", border: "1px solid #e5e7eb" },
