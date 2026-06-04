@@ -2,7 +2,7 @@ import { io } from "socket.io-client";
 import axios from "axios";
 import { useParams } from "react-router-dom";
 import { useEffect, useRef, useState } from "react";
-
+// 🎯 Named imports పక్కాగా ఉన్నాయి
 import { Canvas, PencilBrush, Rect, Circle, IText } from "fabric";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || "https://ai-study-board.onrender.com";
@@ -34,7 +34,7 @@ function Board() {
         canvasElement.id = "fabric-canvas";
         containerRef.current.appendChild(canvasElement);
 
-        
+        // 🎯 లైన్ 34: ఇక్కడ 'fabric.' పూర్తిగా రిమూవ్ చేయబడింది!
         const canvas = new Canvas(canvasElement, {
             width: window.innerWidth,
             height: window.innerHeight,
@@ -44,6 +44,7 @@ function Board() {
         });
         canvasRef.current = canvas;
 
+        // 🎯 ఇక్కడ కూడా 'fabric.' తీసేసి డైరెక్ట్ PencilBrush వాడాను!
         const pencil = new PencilBrush(canvas);
         canvas.freeDrawingBrush = pencil;
         canvas.freeDrawingBrush.color = brushColor;
