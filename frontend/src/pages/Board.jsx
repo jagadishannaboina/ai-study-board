@@ -4,6 +4,9 @@ import { useParams } from "react-router-dom";
 import { useEffect, useRef, useState } from "react";
 import * as fabric from "fabric";
 
+// 🎯 Render API మరియు Socket హోస్ట్ పాత్ (Trailing slash లేకుండా ఇవ్వాలి)
+const BACKEND_URL = "https://ai-study-board.onrender.com";
+
 function Board() {
     const { id } = useParams();
     const containerRef = useRef(null); 
@@ -58,11 +61,14 @@ function Board() {
         document.body.appendChild(myCursor);
         myCursorRef.current = myCursor;
 
-        // Socket Connection
-        socketRef.current = io("http://localhost:5000");
+        // 🎯 Socket.io కి Render URLని పాస్ చేసాం
+        socketRef.current = io(BACKEND_URL, {
+            transports: ["websocket", "polling"], // Render కోసం వైర్‌కనెక్టివిటీ ఫాల్‌బ్యాక్స్
+            withCredentials: true
+        });
         
         socketRef.current.on("connect", () => {
-            console.log("socket connected", socketRef.current.id);
+            console.log("socket connected to render", socketRef.current.id);
         });
 
         socketRef.current.emit("join-board", {
@@ -153,7 +159,6 @@ function Board() {
             redoStack.current = [];
         };
 
-        // 80ms Debounced syncCanvas
         let syncTimeout = null;
         const syncCanvas = () => {
             if (!socketRef.current || !isLoadedRef.current) return;
@@ -169,8 +174,6 @@ function Board() {
                 });
             }, 80);
         };
-
-        // 🎯 ✅ FIX: object:added ఈవెంట్‌ని పూర్తిగా రిమూవ్ చేసాం (Ping-Pong లూప్ క్లోజ్డ్)
         
         canvas.on("object:modified", () => {
             if (!isLoadedRef.current) return;
@@ -193,8 +196,9 @@ function Board() {
         const getBoard = async () => {
             try {
                 const token = localStorage.getItem("token");
+                // 🎯 Render HTTP API Call
                 const response = await axios.get(
-                    `http://localhost:5000/api/boards/${id}`,
+                    `${BACKEND_URL}/api/boards/${id}`,
                     { headers: { Authorization: `Bearer ${token}` } }
                 );
 
@@ -202,15 +206,19 @@ function Board() {
                     await canvas.loadFromJSON({
                         version: "7.4.0",
                         objects: response.data.elements
+                    }, () => {
+                        canvas.backgroundColor = "#f8f9fa";
+                        canvas.renderAll();
                     });
+                } else {
+                    canvas.backgroundColor = "#f8f9fa";
+                    canvas.renderAll();
                 }
-                canvas.backgroundColor = "#f8f9fa";
-                canvas.renderAll();
                 
                 isLoadedRef.current = true;
                 undoStack.current.push(JSON.stringify(canvas.toObject(['selectable', 'evented'])));
             } catch (error) {
-                console.error("Error fetching board:", error);
+                console.error("Error fetching board from Render:", error);
                 isLoadedRef.current = true;
             }
         };
@@ -279,6 +287,13 @@ function Board() {
         canvas.renderAll();
     };
 
+    const emitCanvasUpdateSync = (activeCanvas) => {
+        if (socketRef.current && isLoadedRef.current) {
+            const canvasData = JSON.stringify(activeCanvas.toJSON());
+            socketRef.current.emit("canvas-update", { boardId: id, canvasData });
+        }
+    };
+
     const addShape = (type) => {
         const canvas = canvasRef.current;
         if (!canvas) return;
@@ -323,21 +338,17 @@ function Board() {
             });
         }
 
-        // 🎯 ✅ FIX: ఆబ్జెక్ట్ యాడ్ అయినప్పుడు ఇక్కడే మాన్యువల్‌గా హిస్టరీ మరియు సాకెట్ సింక్ రన్ చేస్తున్నాం
         if (shape) {
             canvas.add(shape);
             canvas.setActiveObject(shape);
             canvas.renderAll();
             
-            // Manual Trigger Instantly
             if (isLoadedRef.current) {
                 const state = JSON.stringify(canvas.toObject(['selectable', 'evented']));
                 undoStack.current.push(state);
                 if (undoStack.current.length > 40) undoStack.current.shift();
                 redoStack.current = [];
-                
-                const canvasData = JSON.stringify(canvas.toJSON());
-                socketRef.current.emit("canvas-update", { boardId: id, canvasData });
+                emitCanvasUpdateSync(canvas);
             }
         }
     };
@@ -347,7 +358,6 @@ function Board() {
         if (!canvas) return;
         const activeObjects = canvas.getActiveObjects();
         
-        // 🎯 ✅ FIX: డిలీట్ కి మాన్యువల్ సింక్ ట్రిగ్గర్
         if (activeObjects.length > 0) {
             activeObjects.forEach((obj) => canvas.remove(obj));
             canvas.discardActiveObject();
@@ -357,9 +367,7 @@ function Board() {
                 const state = JSON.stringify(canvas.toObject(['selectable', 'evented']));
                 undoStack.current.push(state);
                 redoStack.current = [];
-                
-                const canvasData = JSON.stringify(canvas.toJSON());
-                socketRef.current.emit("canvas-update", { boardId: id, canvasData });
+                emitCanvasUpdateSync(canvas);
             }
         }
     };
@@ -372,14 +380,11 @@ function Board() {
             canvas.backgroundColor = "#f8f9fa";
             canvas.renderAll();
             
-            // 🎯 ✅ FIX: క్లియర్ కి మాన్యువల్ సింక్ ట్రిగ్గర్
             if (isLoadedRef.current) {
                 const state = JSON.stringify(canvas.toObject(['selectable', 'evented']));
                 undoStack.current.push(state);
                 redoStack.current = [];
-                
-                const canvasData = JSON.stringify(canvas.toJSON());
-                socketRef.current.emit("canvas-update", { boardId: id, canvasData });
+                emitCanvasUpdateSync(canvas);
             }
         }
     };
@@ -393,14 +398,16 @@ function Board() {
         const previousState = undoStack.current[undoStack.current.length - 1];
 
         isLoadedRef.current = false;
-        await canvas.loadFromJSON(JSON.parse(previousState));
-        canvas.backgroundColor = "#f8f9fa";
-        canvas.forEachObject((obj) => {
-            obj.selectable = !canvas.isDrawingMode;
-            obj.evented = !canvas.isDrawingMode;
+        await canvas.loadFromJSON(JSON.parse(previousState), () => {
+            canvas.backgroundColor = "#f8f9fa";
+            canvas.forEachObject((obj) => {
+                obj.selectable = !canvas.isDrawingMode;
+                obj.evented = !canvas.isDrawingMode;
+            });
+            canvas.renderAll();
+            isLoadedRef.current = true;
+            emitCanvasUpdateSync(canvas);
         });
-        canvas.renderAll();
-        isLoadedRef.current = true;
     };
 
     const redo = async () => {
@@ -411,14 +418,16 @@ function Board() {
         undoStack.current.push(nextState);
 
         isLoadedRef.current = false;
-        await canvas.loadFromJSON(JSON.parse(nextState));
-        canvas.backgroundColor = "#f8f9fa";
-        canvas.forEachObject((obj) => {
-            obj.selectable = !canvas.isDrawingMode;
-            obj.evented = !canvas.isDrawingMode;
+        await canvas.loadFromJSON(JSON.parse(nextState), () => {
+            canvas.backgroundColor = "#f8f9fa";
+            canvas.forEachObject((obj) => {
+                obj.selectable = !canvas.isDrawingMode;
+                obj.evented = !canvas.isDrawingMode;
+            });
+            canvas.renderAll();
+            isLoadedRef.current = true;
+            emitCanvasUpdateSync(canvas);
         });
-        canvas.renderAll();
-        isLoadedRef.current = true;
     };
 
     const downloadBoard = () => {
@@ -437,8 +446,9 @@ function Board() {
             if (!canvas) return;
             const boardData = canvas.toObject(['selectable', 'evented']);
             const token = localStorage.getItem("token");
+            // 🎯 Render HTTP API Patch Call
             await axios.patch(
-                `http://localhost:5000/api/boards/${id}`,
+                `${BACKEND_URL}/api/boards/${id}`,
                 { elements: boardData.objects },
                 { headers: { Authorization: `Bearer ${token}` } }
             );
@@ -473,10 +483,11 @@ function Board() {
                 return;
             }
 
+            // 🎯 Render AI Summarize Endpoint
             const response = await axios.post(
-                "http://localhost:5000/api/ai/summarize",
+                `${BACKEND_URL}/api/ai/summarize`,
                 { text: textContents },
-                { timeout: 8000 }
+                { timeout: 12000 } // Render కోసం టైమౌట్ కాస్త పెంచాను
             );
 
             if (response.data && response.data.summary) {
@@ -501,7 +512,7 @@ function Board() {
         actionBtn: { background: "transparent", border: "none", color: "#374151", padding: "8px 14px", borderRadius: "8px", cursor: "pointer", fontSize: "14px", fontWeight: "500", display: "flex", alignItems: "center", gap: "5px", transition: "background 0.2s" },
         saveBtn: { background: "#10b981", color: "#fff", border: "none", padding: "10px 20px", borderRadius: "12px", cursor: "pointer", fontSize: "14px", fontWeight: "600", boxShadow: "0 4px 12px rgba(16, 185, 129, 0.2)", pointerEvents: "auto", transition: "all 0.2s" },
         colorInput: { width: "32px", height: "32px", border: "none", borderRadius: "50%", cursor: "pointer", overflow: "hidden", padding: 0, background: "none" },
-        aiBox: { background: "white", padding: "20px", borderRadius: "12px", color: "black", position: "absolute", bottom: "30px", right: "30px", width: "340px", boxShadow: "0 10px 25px rgba(0,0,0,0.1)", zIndex: 20, border: "1px solid #e5e7eb" }
+        aiBox: { background: "white", padding: "20px", borderRadius: "12px", color: "#1f2937", position: "absolute", bottom: "30px", right: "30px", width: "340px", boxShadow: "0 10px 25px rgba(0,0,0,0.1)", zIndex: 20, border: "1px solid #e5e7eb" }
     };
 
     return (
@@ -540,9 +551,9 @@ function Board() {
 
             {aiSummary && (
                 <div style={styles.aiBox}>
-                    <h3 style={{ margin: "0 0 10px 0", fontWeight: "600" }}>🤖 AI Board Summary</h3>
+                    <h3 style={{ margin: "0 0 10px 0", fontWeight: "600", color: "#111827" }}>🤖 AI Board Summary</h3>
                     <p style={{ fontSize: "14px", color: "#4b5563", lineHeight: "1.5", margin: 0 }}>{aiSummary}</p>
-                    <button onClick={() => setAiSummary("")} style={{ marginTop: "12px", background: "#f3f4f6", border: "none", padding: "6px 12px", borderRadius: "6px", cursor: "pointer", fontSize: "12px" }}>Close</button>
+                    <button onClick={() => setAiSummary("")} style={{ marginTop: "12px", background: "#f3f4f6", color: "#374151", border: "none", padding: "6px 12px", borderRadius: "6px", cursor: "pointer", fontSize: "12px", fontWeight: "500" }}>Close</button>
                 </div>
             )}
         </div>
