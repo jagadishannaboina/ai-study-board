@@ -2,10 +2,10 @@ import { io } from "socket.io-client";
 import axios from "axios";
 import { useParams } from "react-router-dom";
 import { useEffect, useRef, useState } from "react";
-import * as fabric from "fabric";
 
-// 🎯 Render API మరియు Socket హోస్ట్ పాత్ (Trailing slash లేకుండా ఇవ్వాలి)
-const BACKEND_URL = "https://ai-study-board.onrender.com";
+import { Canvas, PencilBrush, Rect, Circle, IText } from "fabric";
+
+const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || "https://ai-study-board.onrender.com";
 
 function Board() {
     const { id } = useParams();
@@ -34,7 +34,8 @@ function Board() {
         canvasElement.id = "fabric-canvas";
         containerRef.current.appendChild(canvasElement);
 
-        const canvas = new fabric.Canvas(canvasElement, {
+        
+        const canvas = new Canvas(canvasElement, {
             width: window.innerWidth,
             height: window.innerHeight,
             backgroundColor: "#f8f9fa",
@@ -43,7 +44,7 @@ function Board() {
         });
         canvasRef.current = canvas;
 
-        const pencil = new fabric.PencilBrush(canvas);
+        const pencil = new PencilBrush(canvas);
         canvas.freeDrawingBrush = pencil;
         canvas.freeDrawingBrush.color = brushColor;
         canvas.freeDrawingBrush.width = brushSize;
@@ -61,14 +62,15 @@ function Board() {
         document.body.appendChild(myCursor);
         myCursorRef.current = myCursor;
 
-        // 🎯 Socket.io కి Render URLని పాస్ చేసాం
         socketRef.current = io(BACKEND_URL, {
-            transports: ["websocket", "polling"], // Render కోసం వైర్‌కనెక్టివిటీ ఫాల్‌బ్యాక్స్
-            withCredentials: true
+            transports: ["websocket", "polling"], 
+            withCredentials: true,
+            reconnectionAttempts: 5,
+            reconnectionDelay: 2000
         });
         
         socketRef.current.on("connect", () => {
-            console.log("socket connected to render", socketRef.current.id);
+            console.log("Socket connected successfully to Render:", socketRef.current.id);
         });
 
         socketRef.current.emit("join-board", {
@@ -79,7 +81,7 @@ function Board() {
         socketRef.current.on("receive-canvas-update", (data) => {
             if (!canvasRef.current) return;
             
-            console.log("frontend received", data);
+            console.log("Frontend received update:", data);
             isLoadedRef.current = false; 
 
             const parsedData = typeof data.canvasData === "string" 
@@ -135,7 +137,7 @@ function Board() {
                 myCursorRef.current.style.top = e.clientY + "px";
             }
 
-            if (socketRef.current && Date.now() - lastEmit > 30) {
+            if (socketRef.current && Date.now() - lastEmit > 35) {
                 socketRef.current.emit("cursor-move", {
                     boardId: id,
                     x: e.clientX,
@@ -166,13 +168,11 @@ function Board() {
             clearTimeout(syncTimeout);
             syncTimeout = setTimeout(() => {
                 const canvasData = JSON.stringify(canvas.toJSON());
-                console.log("sending canvas");
-                
                 socketRef.current.emit("canvas-update", {
                     boardId: id,
                     canvasData
                 });
-            }, 80);
+            }, 100); 
         };
         
         canvas.on("object:modified", () => {
@@ -196,10 +196,12 @@ function Board() {
         const getBoard = async () => {
             try {
                 const token = localStorage.getItem("token");
-                // 🎯 Render HTTP API Call
                 const response = await axios.get(
                     `${BACKEND_URL}/api/boards/${id}`,
-                    { headers: { Authorization: `Bearer ${token}` } }
+                    { 
+                        headers: { Authorization: `Bearer ${token}` },
+                        timeout: 15000 
+                    }
                 );
 
                 if (response.data.elements?.length > 0) {
@@ -305,7 +307,7 @@ function Board() {
         const topY = center.y !== undefined ? center.y : center.top;
 
         if (type === "rect") {
-            shape = new fabric.Rect({
+            shape = new Rect({
                 left: leftX - 60,
                 top: topY - 60,
                 fill: "#ef4444", 
@@ -315,14 +317,14 @@ function Board() {
                 ry: 12
             });
         } else if (type === "circle") {
-            shape = new fabric.Circle({
+            shape = new Circle({
                 left: leftX - 60,
                 top: topY - 60,
                 fill: "#10b981",
                 radius: 60
             });
         } else if (type === "text") {
-            shape = new fabric.IText("Double Click to Edit Text", {
+            shape = new IText("Double Click to Edit Text", {
                 left: leftX - 100,
                 top: topY - 20,
                 fill: "#1f2937",
@@ -446,11 +448,14 @@ function Board() {
             if (!canvas) return;
             const boardData = canvas.toObject(['selectable', 'evented']);
             const token = localStorage.getItem("token");
-            // 🎯 Render HTTP API Patch Call
+            
             await axios.patch(
                 `${BACKEND_URL}/api/boards/${id}`,
                 { elements: boardData.objects },
-                { headers: { Authorization: `Bearer ${token}` } }
+                { 
+                    headers: { Authorization: `Bearer ${token}` },
+                    timeout: 15000 
+                }
             );
             alert("Board saved seamlessly! ✨");
         } catch (error) {
@@ -483,11 +488,10 @@ function Board() {
                 return;
             }
 
-            // 🎯 Render AI Summarize Endpoint
             const response = await axios.post(
                 `${BACKEND_URL}/api/ai/summarize`,
                 { text: textContents },
-                { timeout: 12000 } // Render కోసం టైమౌట్ కాస్త పెంచాను
+                { timeout: 20000 } 
             );
 
             if (response.data && response.data.summary) {
