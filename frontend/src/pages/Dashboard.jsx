@@ -18,7 +18,7 @@ function Dashboard() {
 
             const response = await axios.post(
 
-                "http://localhost:5000/api/boards",
+                "https://ai-study-board.onrender.com/api/boards",
 
                 {
                     title: "New Board"
@@ -52,7 +52,7 @@ function Dashboard() {
 
             const response = await axios.get(
 
-                "http://localhost:5000/api/boards",
+                "https://ai-study-board.onrender.com/api/boards",
 
                 {
                     headers: {
