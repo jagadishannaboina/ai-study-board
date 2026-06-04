@@ -5,7 +5,9 @@ import { useEffect, useRef, useState } from "react";
 // 🎯 Named imports పక్కాగా ఉన్నాయి
 import { Canvas, PencilBrush, Rect, Circle, IText } from "fabric";
 
-const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || "https://ai-study-board.onrender.com";
+// const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || "https://ai-study-board.onrender.com";
+const BACKEND_URL =  "https://ai-study-board.onrender.com";
+
 
 function Board() {
     const { id } = useParams();
