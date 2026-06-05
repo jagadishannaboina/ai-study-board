@@ -6,7 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import { Canvas, PencilBrush, Rect, Circle, IText } from "fabric";
 
 // const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || "https://ai-study-board.onrender.com";
-const BACKEND_URL =  "https://ai-study-board.onrender.com";
+const BACKEND_URL =  import.meta.env.VITE_API_URL;
 
 
 function Board() {

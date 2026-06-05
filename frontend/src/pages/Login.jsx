@@ -2,6 +2,8 @@ import { useState } from "react";
 import axios from "axios";
 import { useNavigate } from "react-router-dom";
 
+const BACKEND_URL =  import.meta.env.VITE_API_URL;
+
 function Login() {
     const navigate = useNavigate();
     const [formData, setFormData] = useState({
@@ -25,7 +27,7 @@ function Login() {
 
         try {
             const response = await axios.post(
-                "https://ai-study-board.onrender.com/api/auth/login",
+                 `${BACKEND_URL}/api/auth/login`,
                 formData
             );
 

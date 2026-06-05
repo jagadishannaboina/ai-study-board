@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import axios from "axios";
 
 import { useNavigate } from "react-router-dom";
+const BACKEND_URL =  import.meta.env.VITE_API_URL;
 
 function Dashboard() {
 
@@ -18,7 +19,7 @@ function Dashboard() {
 
             const response = await axios.post(
 
-                "https://ai-study-board.onrender.com/api/boards",
+                `${BACKEND_URL}/api/boards`,
 
                 {
                     title: "New Board"
@@ -52,7 +53,7 @@ function Dashboard() {
 
             const response = await axios.get(
 
-                "https://ai-study-board.onrender.com/api/boards",
+                `${BACKEND_URL}/api/boards`,
 
                 {
                     headers: {
